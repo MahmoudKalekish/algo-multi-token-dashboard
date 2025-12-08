@@ -147,38 +147,48 @@ const PortfolioDashboard: React.FC<Props> = ({ onOpenCreateModal }) => {
 
         const mapped: Txn[] =
           txRes.transactions?.map((t: any, index: number) => {
-            const txType = t['tx-type']
+            // tolerant parsing of indexer transaction fields
+            const txTypeRaw = t['tx-type'] ?? t.type ?? t['transaction-type'] ?? 'unknown'
+            const txType = String(txTypeRaw)
+
             let amount: number | bigint = 0
             let decimals = 0
             let assetId: number | undefined = undefined
 
-            if (txType === 'pay') {
+            // try to extract common payment/asset-transfer shapes
+            const pay = t['payment-transaction'] ?? t.payment ?? null
+            const axfer = t['asset-transfer-transaction'] ?? t['asset-transfer'] ?? t.asset_transfer_transaction ?? null
+
+            if (txType === 'pay' || pay) {
               // ALGO payment
-              amount = t['payment-transaction']?.amount ?? 0
+              amount = (pay?.amount ?? t.amount ?? 0)
               decimals = 6
-            } else if (txType === 'axfer') {
+            } else if (txType === 'axfer' || axfer) {
               // ASA transfer
-              assetId = t['asset-transfer-transaction']?.['asset-id']
-              amount = t['asset-transfer-transaction']?.amount ?? 0
-              const meta = assetMetaById.get(assetId ?? -1)
+              assetId = (axfer?.['asset-id'] ?? axfer?.['assetId'] ?? axfer?.assetId)
+              amount = axfer?.amount ?? t.amount ?? 0
+              const meta = assetMetaById.get(Number(assetId ?? -1))
               if (meta && typeof meta.decimals === 'number') {
                 decimals = meta.decimals
               }
             }
 
             if (typeof amount === 'bigint') amount = Number(amount)
+            if (typeof amount === 'string') amount = Number(amount)
 
             // Tx ID may not be unique in inner txs; add index/round for React key safety
-            const id = t.id ?? `${t.group ?? 'grp'}-${t['confirmed-round']}-${index}`
+            const id = t.id ?? t.txid ?? `${t.group ?? 'grp'}-${t['confirmed-round'] ?? t.round ?? 0}-${index}`
+
+            const round = t['confirmed-round'] ?? t.confirmedRound ?? t.round ?? 0
 
             return {
               id,
               type: txType,
-              assetId,
-              amount,
+              assetId: assetId ? Number(assetId) : undefined,
+              amount: typeof amount === 'number' ? amount : Number(amount),
               decimals,
-              round: t['confirmed-round'],
-              timestamp: t['round-time'],
+              round,
+              timestamp: t['round-time'] ?? t.roundTime ?? t['round-time'],
             }
           }) ?? []
 
@@ -216,27 +226,57 @@ const PortfolioDashboard: React.FC<Props> = ({ onOpenCreateModal }) => {
     [assets],
   )
 
+  const copyAddress = async () => {
+    try {
+      await navigator.clipboard.writeText(activeAddress ?? '')
+      enqueueSnackbar('Address copied to clipboard', { variant: 'success' })
+    } catch (e) {
+      enqueueSnackbar('Failed to copy address', { variant: 'warning' })
+    }
+  }
+
   const formatTxnAmount = (t: Txn) => {
     if (t.amount == null) return '—'
     const dec = t.decimals ?? 0
     return (t.amount / Math.pow(10, dec)).toLocaleString()
   }
 
+  const formatAssetAmount = (asset: AssetHolding) => {
+    const dec = asset.decimals ?? 0
+    const amount = dec > 0 ? asset.amount / Math.pow(10, dec) : asset.amount
+    return amount.toLocaleString(undefined, { maximumFractionDigits: Math.max(0, dec) })
+  }
+
   return (
     <div className="mt-8 text-left">
       {/* HEADER */}
       <div className="flex justify-between items-center mb-4">
-        <div>
-          <div className="text-sm text-gray-500">Connected</div>
-          <a
-            className="font-mono font-semibold"
-            target="_blank"
-            rel="noreferrer"
-            href={`https://lora.algokit.io/${networkName}/account/${activeAddress}/`}
-          >
-            {ellipseAddress(activeAddress)}
-          </a>
-          <div className="text-xs text-gray-400 mt-1">Network: {networkName}</div>
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-teal-300 to-teal-600 flex items-center justify-center text-white font-bold">
+            {ellipseAddress(activeAddress).slice(0, 2).toUpperCase()}
+          </div>
+
+          <div>
+            <div className="text-sm text-gray-500 flex items-center gap-2">
+              <span>Connected</span>
+              <span className="text-xs badge badge-ghost">{networkName}</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <a
+                className="font-mono font-semibold text-sm"
+                target="_blank"
+                rel="noreferrer"
+                href={`https://lora.algokit.io/${networkName}/account/${activeAddress}/`}
+              >
+                {ellipseAddress(activeAddress)}
+              </a>
+              <button className="btn btn-ghost btn-xs" onClick={copyAddress} title="Copy address">
+                Copy
+              </button>
+            </div>
+            <div className="text-xs text-gray-400 mt-1">Network: {networkName}</div>
+          </div>
         </div>
 
         <button
@@ -264,9 +304,9 @@ const PortfolioDashboard: React.FC<Props> = ({ onOpenCreateModal }) => {
         </div>
 
         <div className="card bg-teal-50 shadow-sm">
-          <div className="card-body flex flex-col gap-2">
+          <div className="card-body flex flex-col gap-2 overflow-hidden">
             <h2 className="card-title text-sm text-gray-500">Token Actions</h2>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
               <button
                 className="btn btn-sm btn-primary"
                 onClick={() => setOpenSendAssetModal(true)}
@@ -290,15 +330,18 @@ const PortfolioDashboard: React.FC<Props> = ({ onOpenCreateModal }) => {
 
       {/* ASA TABLE */}
       <div className="mb-6">
-        <h3 className="text-lg font-semibold mb-2">Assets in Wallet</h3>
+        <h3 className="text-lg font-semibold mb-2 flex items-center justify-between">
+          <span>Assets in Wallet</span>
+          <span className="text-sm text-gray-500">{validAssetsCount} assets</span>
+        </h3>
         <div className="overflow-x-auto">
           <table className="table table-zebra table-sm">
             <thead>
               <tr>
-                <th>Asset ID</th>
-                <th>Name</th>
-                <th>Unit</th>
-                <th>Amount</th>
+                <th>Asset</th>
+                <th className="hidden md:table-cell">Asset ID</th>
+                <th className="hidden sm:table-cell">Unit</th>
+                <th className="text-right">Amount</th>
               </tr>
             </thead>
             <tbody>
@@ -311,16 +354,18 @@ const PortfolioDashboard: React.FC<Props> = ({ onOpenCreateModal }) => {
               )}
 
               {assets.map((asset, index) => {
-                const dec = asset.decimals ?? 0
-                const amount =
-                  dec > 0 ? asset.amount / Math.pow(10, dec) : asset.amount
-
                 return (
                   <tr key={asset.assetId ?? index}>
-                    <td>{asset.assetId}</td>
-                    <td>{asset.name}</td>
-                    <td>{asset.unitName}</td>
-                    <td>{amount.toLocaleString()}</td>
+                    <td className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-md bg-slate-100 flex items-center justify-center text-sm font-semibold text-slate-700">{(asset.unitName ?? 'T').slice(0,3)}</div>
+                      <div>
+                        <div className="font-semibold">{asset.name}</div>
+                        <div className="text-xs text-gray-400">{asset.unitName}</div>
+                      </div>
+                    </td>
+                    <td className="hidden md:table-cell">{asset.assetId}</td>
+                    <td className="hidden sm:table-cell">{asset.unitName}</td>
+                    <td className="text-right font-mono">{formatAssetAmount(asset)}</td>
                   </tr>
                 )
               })}
