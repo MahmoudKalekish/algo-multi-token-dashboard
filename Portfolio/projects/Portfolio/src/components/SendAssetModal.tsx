@@ -64,17 +64,38 @@ const SendAssetModal: React.FC<Props> = ({ open, onClose }) => {
 
       enqueueSnackbar('Sending ASA transfer...', { variant: 'info' })
 
-      const result = await algorand.send.assetTransfer({
-        sender: activeAddress,
-        receiver,
-        assetId: BigInt(Number(assetId)),
-        amount: BigInt(amount), // amount in base units
-        signer: transactionSigner,
-      })
+      let result: any = null
+      let attempt = 0
+      while (attempt < 2) {
+        try {
+          result = await algorand.send.assetTransfer({
+            sender: activeAddress,
+            receiver,
+            assetId: BigInt(Number(assetId)),
+            amount: BigInt(amount), // amount in base units
+            signer: transactionSigner,
+          })
 
-      enqueueSnackbar(`Asset transfer sent: ${result.txIds[0]}`, {
-        variant: 'success',
-      })
+          // success
+          enqueueSnackbar(`Asset transfer sent: ${result.txIds?.[0] ?? 'sent'}`, {
+            variant: 'success',
+          })
+          break
+        } catch (err: any) {
+          const em = String(err)
+          // If txn dead (stale rounds), retry once after a short delay
+          if (em.toLowerCase().includes('txn dead') && attempt === 0) {
+            enqueueSnackbar('Stale tx params detected, retrying...', { variant: 'info' })
+            // wait a bit for algod to advance rounds / for fresh params
+            await new Promise((r) => setTimeout(r, 1100))
+            attempt += 1
+            continue
+          }
+
+          // rethrow the error to be handled by outer catch
+          throw err
+        }
+      }
       setAssetId('')
       setReceiver('')
       setAmount('')
