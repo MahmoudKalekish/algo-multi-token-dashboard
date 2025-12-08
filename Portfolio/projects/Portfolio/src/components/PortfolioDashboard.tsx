@@ -4,7 +4,10 @@ import { useWallet } from '@txnlab/use-wallet-react'
 import { useSnackbar } from 'notistack'
 import React, { useEffect, useMemo, useState } from 'react'
 import { ellipseAddress } from '../utils/ellipseAddress'
-import { getAlgodConfigFromViteEnvironment, getIndexerConfigFromViteEnvironment } from '../utils/network/getAlgoClientConfigs'
+import {
+  getAlgodConfigFromViteEnvironment,
+  getIndexerConfigFromViteEnvironment,
+} from '../utils/network/getAlgoClientConfigs'
 import SendAssetModal from './SendAssetModal'
 
 interface AssetHolding {
@@ -20,6 +23,7 @@ interface Txn {
   type: string
   assetId?: number
   amount?: number
+  decimals?: number
   round: number
   timestamp?: number
 }
@@ -36,6 +40,7 @@ const PortfolioDashboard: React.FC = () => {
 
   const algodConfig = getAlgodConfigFromViteEnvironment()
   const indexerConfig = getIndexerConfigFromViteEnvironment()
+
   const algorand = useMemo(
     () =>
       AlgorandClient.fromConfig({
@@ -53,40 +58,75 @@ const PortfolioDashboard: React.FC = () => {
   const loadPortfolio = async () => {
     if (!activeAddress) return
     setLoading(true)
+
     try {
-      // 1) Account info for balances
+      // ==========================
+      // 1) Load account info (ALGO + raw ASA holdings)
+      // ==========================
       const acct = await algorand.client.algod.accountInformation(activeAddress).do()
 
-      const algoRaw = typeof acct.amount === 'bigint' ? Number(acct.amount) : acct.amount;
-setAlgoBalance(algoRaw / 1e6);
-      
+      const algoRaw = typeof acct.amount === 'bigint' ? Number(acct.amount) : acct.amount ?? 0
+      setAlgoBalance(algoRaw / 1e6)
 
-      const rawAssets: AssetHolding[] =
-        acct.assets?.map((a: any) => ({
-          assetId: a['asset-id'],
-          amount: a.amount,
-        })) ?? []
+      // Debug: inspect raw assets structure returned by algod
+      console.debug('account.assets:', acct.assets)
 
-      // 2) Enrich with asset metadata (name, unit, decimals)
-      const enriched = await Promise.all(
+      // Be permissive about the shape of asset entries. Some responses may use
+      // different key casing or string IDs — coerce to Number and skip invalid.
+      const rawAssets: AssetHolding[] = (acct.assets ?? [])
+        .map((a: any) => {
+          const assetIdRaw = a['asset-id'] ?? a.assetId ?? a['assetId']
+          const assetId = typeof assetIdRaw === 'number' ? assetIdRaw : Number(assetIdRaw)
+          if (!Number.isFinite(assetId)) return null
+
+          const amountRaw = a.amount ?? a['amount'] ?? 0
+          const amount = typeof amountRaw === 'bigint' ? Number(amountRaw) : Number(amountRaw)
+
+          return {
+            assetId,
+            amount,
+          }
+        })
+        .filter((x): x is AssetHolding => x != null)
+
+      // ==========================
+      // 2) Fetch ASA metadata
+      // ==========================
+      const enriched: AssetHolding[] = await Promise.all(
         rawAssets.map(async (asset) => {
           try {
             const res = await algorand.client.algod.getAssetByID(asset.assetId).do()
+            const params = res.params as Record<string, any>
+
             return {
               ...asset,
-              name: res.params.name,
-              unitName: res.params['unit-name'],
-              decimals: res.params.decimals,
+              decimals: params.decimals ?? 0,
+              name: params.name ?? params['asset-name'] ?? 'Unknown',
+              unitName: params['unit-name'] ?? 'N/A',
             }
-          } catch {
-            return asset
+          } catch (err) {
+            console.error('ASA metadata fetch failed for:', asset.assetId, err)
+            return {
+              ...asset,
+              decimals: 0,
+              name: 'Unknown',
+              unitName: 'N/A',
+            }
           }
         }),
       )
 
       setAssets(enriched)
 
-      // 3) Recent transactions from indexer
+      // Build a helper map for tx decoding (assetId -> decimals)
+      const assetMetaById = new Map<number, AssetHolding>()
+      enriched.forEach((a) => {
+        assetMetaById.set(a.assetId, a)
+      })
+
+      // ==========================
+      // 3) Fetch recent transactions
+      // ==========================
       try {
         const txRes = await algorand.client.indexer
           .searchForTransactions()
@@ -95,34 +135,55 @@ setAlgoBalance(algoRaw / 1e6);
           .do()
 
         const mapped: Txn[] =
-          txRes.transactions?.map((t: any) => ({
-            id: t.id,
-            type: t['tx-type'],
-            assetId: t['asset-transfer-transaction']?.['asset-id'],
-amount: t['asset-transfer-transaction']?.amount
-  ? Number(t['asset-transfer-transaction']?.amount)
-  : t['payment-transaction']?.amount
-  ? Number(t['payment-transaction']?.amount)
-  : undefined,
-            round: t['confirmed-round'],
-            timestamp: t['round-time'],
-          })) ?? []
+          txRes.transactions?.map((t: any, index: number) => {
+            const txType = t['tx-type']
+            let amount: number | bigint = 0
+            let decimals = 0
+            let assetId: number | undefined = undefined
+
+            if (txType === 'pay') {
+              // ALGO payment
+              amount = t['payment-transaction']?.amount ?? 0
+              decimals = 6
+            } else if (txType === 'axfer') {
+              // ASA transfer
+              assetId = t['asset-transfer-transaction']?.['asset-id']
+              amount = t['asset-transfer-transaction']?.amount ?? 0
+              const meta = assetMetaById.get(assetId ?? -1)
+              if (meta && typeof meta.decimals === 'number') {
+                decimals = meta.decimals
+              }
+            }
+
+            if (typeof amount === 'bigint') amount = Number(amount)
+
+            // Tx ID may not be unique in inner txs; add index/round for React key safety
+            const id = t.id ?? `${t.group ?? 'grp'}-${t['confirmed-round']}-${index}`
+
+            return {
+              id,
+              type: txType,
+              assetId,
+              amount,
+              decimals,
+              round: t['confirmed-round'],
+              timestamp: t['round-time'],
+            }
+          }) ?? []
 
         setTxns(mapped)
       } catch (e) {
         console.error(e)
-        enqueueSnackbar('Failed to load recent transactions from indexer', { variant: 'warning' })
+        enqueueSnackbar('Failed to load recent transactions from indexer', {
+          variant: 'warning',
+        })
       }
     } catch (e: any) {
-  console.error("ALGOD ERROR:", e);
-
-  if (e?.response?.body) {
-    console.error("Algod response error:", await e.response.body.text());
-  }
-
-  enqueueSnackbar(`Failed to load portfolio data: ${e?.message ?? e}`, { variant: 'error' });
-}
-finally {
+      console.error('ALGOD ERROR:', e)
+      enqueueSnackbar(`Failed to load portfolio data: ${e?.message ?? e}`, {
+        variant: 'error',
+      })
+    } finally {
       setLoading(false)
     }
   }
@@ -135,15 +196,19 @@ finally {
       setAssets([])
       setTxns([])
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeAddress])
 
-  if (!activeAddress) {
-    return null
+  if (!activeAddress) return null
+
+  const formatTxnAmount = (t: Txn) => {
+    if (t.amount == null) return '—'
+    const dec = t.decimals ?? 0
+    return (t.amount / Math.pow(10, dec)).toLocaleString()
   }
 
   return (
     <div className="mt-8 text-left">
+      {/* HEADER */}
       <div className="flex justify-between items-center mb-4">
         <div>
           <div className="text-sm text-gray-500">Connected</div>
@@ -187,9 +252,7 @@ finally {
             <h2 className="card-title text-sm text-gray-500">Token Actions</h2>
             <button
               className="btn btn-sm btn-primary"
-              onClick={() => {
-                setOpenSendAssetModal(true)
-              }}
+              onClick={() => setOpenSendAssetModal(true)}
             >
               Send ASA Token
             </button>
@@ -197,7 +260,7 @@ finally {
         </div>
       </div>
 
-      {/* ASSET TABLE */}
+      {/* ASA TABLE */}
       <div className="mb-6">
         <h3 className="text-lg font-semibold mb-2">Assets in Wallet</h3>
         <div className="overflow-x-auto">
@@ -214,24 +277,22 @@ finally {
               {assets.length === 0 && (
                 <tr>
                   <td colSpan={4} className="text-center text-gray-400">
-                    No ASAs found for this account.
+                    No ASAs found.
                   </td>
                 </tr>
               )}
-              {assets.map((asset) => {
-                const decimals = asset.decimals ?? 0
-                const rawAmount = typeof asset.amount === 'bigint' ? Number(asset.amount) : asset.amount;
-const displayAmount = decimals
-  ? rawAmount / Math.pow(10, decimals)
-  : rawAmount;
 
+              {assets.map((asset, index) => {
+                const dec = asset.decimals ?? 0
+                const amount =
+                  dec > 0 ? asset.amount / Math.pow(10, dec) : asset.amount
 
                 return (
-                  <tr key={asset.assetId}>
-                    <td className="font-mono text-xs">{asset.assetId}</td>
-                    <td>{asset.name ?? '—'}</td>
-                    <td>{asset.unitName ?? '—'}</td>
-                    <td>{displayAmount.toLocaleString()}</td>
+                  <tr key={asset.assetId ?? index}>
+                    <td>{asset.assetId}</td>
+                    <td>{asset.name}</td>
+                    <td>{asset.unitName}</td>
+                    <td>{amount.toLocaleString()}</td>
                   </tr>
                 )
               })}
@@ -241,44 +302,45 @@ const displayAmount = decimals
       </div>
 
       {/* TRANSACTION TABLE */}
-      <div>
-        <h3 className="text-lg font-semibold mb-2">Recent Transactions</h3>
-        <div className="overflow-x-auto">
-          <table className="table table-sm">
-            <thead>
+      <h3 className="text-lg font-semibold mb-2">Recent Transactions</h3>
+      <div className="overflow-x-auto mb-10">
+        <table className="table table-sm">
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Amount</th>
+              <th>Asset</th>
+              <th>Round</th>
+              <th>Tx ID</th>
+            </tr>
+          </thead>
+          <tbody>
+            {txns.length === 0 && (
               <tr>
-                <th>Type</th>
-                <th>Amount</th>
-                <th>Asset</th>
-                <th>Round</th>
-                <th>Tx ID</th>
+                <td colSpan={5} className="text-center text-gray-400">
+                  No transactions found.
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {txns.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="text-center text-gray-400">
-                    No recent transactions found.
-                  </td>
-                </tr>
-              )}
-              {txns.map((t) => (
-                <tr key={t.id}>
-                  <td>{t.type}</td>
-<td>{typeof t.amount === 'number' ? (t.amount / 1e6).toLocaleString() : '—'}</td>
-                  <td>{t.assetId ?? '—'}</td>
-                  <td>{t.round}</td>
-                  <td className="font-mono text-[10px]">
-                    {ellipseAddress(t.id)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            )}
+
+            {txns.map((t, index) => (
+              <tr key={`${t.id}-${t.round}-${index}`}>
+                <td>{t.type}</td>
+                <td>{formatTxnAmount(t)}</td>
+                <td>{t.assetId ?? 'ALGO'}</td>
+                <td>{t.round}</td>
+                <td className="font-mono text-[10px]">{ellipseAddress(t.id)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
-      <SendAssetModal open={openSendAssetModal} onClose={() => setOpenSendAssetModal(false)} />
+      {/* SEND ASA MODAL */}
+      <SendAssetModal
+        open={openSendAssetModal}
+        onClose={() => setOpenSendAssetModal(false)}
+      />
     </div>
   )
 }

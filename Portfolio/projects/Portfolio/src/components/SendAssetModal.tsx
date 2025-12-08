@@ -33,6 +33,11 @@ const SendAssetModal: React.FC<Props> = ({ open, onClose }) => {
       return
     }
 
+    if (Number(amount) <= 0) {
+      enqueueSnackbar('Amount must be greater than zero', { variant: 'warning' })
+      return
+    }
+
     setLoading(true)
     try {
       enqueueSnackbar('Sending ASA transfer...', { variant: 'info' })
@@ -45,14 +50,25 @@ const SendAssetModal: React.FC<Props> = ({ open, onClose }) => {
         signer: transactionSigner,
       })
 
-      enqueueSnackbar(`Asset transfer sent: ${result.txIds[0]}`, { variant: 'success' })
+      enqueueSnackbar(`Asset transfer sent: ${result.txIds[0]}`, {
+        variant: 'success',
+      })
       setAssetId('')
       setReceiver('')
       setAmount('')
       onClose()
-    } catch (e) {
+    } catch (e: any) {
       console.error(e)
-      enqueueSnackbar('Failed to send asset transfer', { variant: 'error' })
+      const msg = String(e)
+
+      if (msg.includes('must optin')) {
+        enqueueSnackbar(
+          'Receiver must opt-in to this ASA in their wallet before they can receive it.',
+          { variant: 'warning' },
+        )
+      } else {
+        enqueueSnackbar('Failed to send asset transfer', { variant: 'error' })
+      }
     } finally {
       setLoading(false)
     }
