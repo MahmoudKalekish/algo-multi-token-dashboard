@@ -1,15 +1,17 @@
   // src/Home.tsx
   import { useWallet } from '@txnlab/use-wallet-react'
-  import React, { useState } from 'react'
-  import ConnectWallet from './components/ConnectWallet'
-  import PortfolioDashboard from './components/PortfolioDashboard'
-  import Transact from './components/Transact'
+import React, { useState } from 'react'
+import ConnectWallet from './components/ConnectWallet'
+import CreateTokenModal from './components/CreateTokenModal'
+import PortfolioDashboard from './components/PortfolioDashboard'
+import Transact from './components/Transact'
 
   interface HomeProps {}
 
   const Home: React.FC<HomeProps> = () => {
     const [openWalletModal, setOpenWalletModal] = useState<boolean>(false)
     const [openDemoModal, setOpenDemoModal] = useState<boolean>(false)
+    const [openCreateTokenModal, setOpenCreateTokenModal] = useState<boolean>(false)
     const { activeAddress } = useWallet()
 
     const toggleWalletModal = () => {
@@ -45,11 +47,14 @@
           </div>
 
           {/* Portfolio dashboard */}
-          {activeAddress && <PortfolioDashboard />}
+          {activeAddress && (
+            <PortfolioDashboard onOpenCreateModal={() => setOpenCreateTokenModal(true)} />
+          )}
 
           {/* Modals */}
           <ConnectWallet openModal={openWalletModal} closeModal={toggleWalletModal} />
           <Transact openModal={openDemoModal} setModalState={setOpenDemoModal} />
+          <CreateTokenModal open={openCreateTokenModal} onClose={() => setOpenCreateTokenModal(false)} />
         </div>
       </div>
     )

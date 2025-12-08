@@ -40,12 +40,34 @@ const SendAssetModal: React.FC<Props> = ({ open, onClose }) => {
 
     setLoading(true)
     try {
+      // Optional pre-check: ensure the receiver has opted-in to this ASA
+      try {
+        const recvAcct = await algorand.client.algod.accountInformation(receiver).do()
+        const recvAssets = recvAcct.assets ?? []
+        const hasOptIn = recvAssets.some((a: any) => {
+          const idRaw = a['asset-id'] ?? a.assetId ?? a['assetId']
+          const id = typeof idRaw === 'number' ? idRaw : Number(idRaw)
+          return Number(id) === Number(assetId)
+        })
+
+        if (!hasOptIn) {
+          enqueueSnackbar('Receiver must opt-in to receive this asset.', { variant: 'warning' })
+          setLoading(false)
+          return
+        }
+      } catch (e) {
+        // Couldn't verify; show a helpful warning and abort to avoid failed tx
+        enqueueSnackbar('Unable to verify receiver opt-in status. Aborting send.', { variant: 'warning' })
+        setLoading(false)
+        return
+      }
+
       enqueueSnackbar('Sending ASA transfer...', { variant: 'info' })
 
       const result = await algorand.send.assetTransfer({
         sender: activeAddress,
         receiver,
-        assetId: Number(assetId),
+        assetId: BigInt(Number(assetId)),
         amount: BigInt(amount), // amount in base units
         signer: transactionSigner,
       })

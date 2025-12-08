@@ -8,6 +8,7 @@ import {
   getAlgodConfigFromViteEnvironment,
   getIndexerConfigFromViteEnvironment,
 } from '../utils/network/getAlgoClientConfigs'
+import CreateTokenModal from './CreateTokenModal'
 import SendAssetModal from './SendAssetModal'
 
 interface AssetHolding {
@@ -28,7 +29,11 @@ interface Txn {
   timestamp?: number
 }
 
-const PortfolioDashboard: React.FC = () => {
+interface Props {
+  onOpenCreateModal?: () => void
+}
+
+const PortfolioDashboard: React.FC<Props> = ({ onOpenCreateModal }) => {
   const { activeAddress } = useWallet()
   const { enqueueSnackbar } = useSnackbar()
 
@@ -37,6 +42,7 @@ const PortfolioDashboard: React.FC = () => {
   const [txns, setTxns] = useState<Txn[]>([])
   const [loading, setLoading] = useState(false)
   const [openSendAssetModal, setOpenSendAssetModal] = useState(false)
+  const [openCreateTokenModalLocal, setOpenCreateTokenModalLocal] = useState(false)
 
   const algodConfig = getAlgodConfigFromViteEnvironment()
   const indexerConfig = getIndexerConfigFromViteEnvironment()
@@ -98,11 +104,16 @@ const PortfolioDashboard: React.FC = () => {
             const res = await algorand.client.algod.getAssetByID(asset.assetId).do()
             const params = res.params as Record<string, any>
 
+            // Support multiple possible metadata fields returned by different SDKs
+            const name = params.name ?? params['asset-name'] ?? params.assetName ?? 'Unknown'
+            const unitName = params['unit-name'] ?? params.unitName ?? params.unit ?? 'N/A'
+            const decimals = Number.isFinite(Number(params.decimals)) ? Number(params.decimals) : 0
+
             return {
               ...asset,
-              decimals: params.decimals ?? 0,
-              name: params.name ?? params['asset-name'] ?? 'Unknown',
-              unitName: params['unit-name'] ?? 'N/A',
+              decimals,
+              name,
+              unitName,
             }
           } catch (err) {
             console.error('ASA metadata fetch failed for:', asset.assetId, err)
@@ -200,6 +211,11 @@ const PortfolioDashboard: React.FC = () => {
 
   if (!activeAddress) return null
 
+  const validAssetsCount = useMemo(
+    () => assets.filter((a) => Number.isFinite(a.assetId) && (a.amount ?? 0) > 0).length,
+    [assets],
+  )
+
   const formatTxnAmount = (t: Txn) => {
     if (t.amount == null) return '—'
     const dec = t.decimals ?? 0
@@ -243,19 +259,31 @@ const PortfolioDashboard: React.FC = () => {
         <div className="card bg-teal-50 shadow-sm">
           <div className="card-body">
             <h2 className="card-title text-sm text-gray-500">Number of Assets</h2>
-            <p className="text-2xl font-bold">{assets.length}</p>
+            <p className="text-2xl font-bold">{validAssetsCount}</p>
           </div>
         </div>
 
         <div className="card bg-teal-50 shadow-sm">
           <div className="card-body flex flex-col gap-2">
             <h2 className="card-title text-sm text-gray-500">Token Actions</h2>
-            <button
-              className="btn btn-sm btn-primary"
-              onClick={() => setOpenSendAssetModal(true)}
-            >
-              Send ASA Token
-            </button>
+            <div className="flex gap-2">
+              <button
+                className="btn btn-sm btn-primary"
+                onClick={() => setOpenSendAssetModal(true)}
+              >
+                Send ASA Token
+              </button>
+
+              <button
+                className="btn btn-sm btn-outline"
+                onClick={() => {
+                  if (onOpenCreateModal) onOpenCreateModal()
+                  else setOpenCreateTokenModalLocal(true)
+                }}
+              >
+                Create Token
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -340,6 +368,12 @@ const PortfolioDashboard: React.FC = () => {
       <SendAssetModal
         open={openSendAssetModal}
         onClose={() => setOpenSendAssetModal(false)}
+      />
+
+      {/* Local fallback modal for creating tokens if parent doesn't render one */}
+      <CreateTokenModal
+        open={openCreateTokenModalLocal}
+        onClose={() => setOpenCreateTokenModalLocal(false)}
       />
     </div>
   )
