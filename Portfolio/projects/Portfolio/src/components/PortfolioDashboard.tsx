@@ -25,7 +25,7 @@ interface Txn {
   assetId?: number
   amount?: number
   decimals?: number
-  round: number
+  round?: number
   timestamp?: number
 }
 
@@ -148,8 +148,13 @@ const PortfolioDashboard: React.FC<Props> = ({ onOpenCreateModal }) => {
         const mapped: Txn[] =
           txRes.transactions?.map((t: any, index: number) => {
             // tolerant parsing of indexer transaction fields
-            const txTypeRaw = t['tx-type'] ?? t.type ?? t['transaction-type'] ?? 'unknown'
-            const txType = String(txTypeRaw)
+            const txTypeRaw = (t['tx-type'] ?? t.type ?? t['transaction-type'] ?? '').toString().toLowerCase()
+
+            // Normalize to friendly types for UI
+            let txType = 'Unknown'
+            if (txTypeRaw.includes('pay') || txTypeRaw.includes('payment')) txType = 'ALGO'
+            else if (txTypeRaw.includes('axfer') || txTypeRaw.includes('asset')) txType = 'ASA'
+            else if (txTypeRaw) txType = txTypeRaw.toUpperCase()
 
             let amount: number | bigint = 0
             let decimals = 0
@@ -179,7 +184,8 @@ const PortfolioDashboard: React.FC<Props> = ({ onOpenCreateModal }) => {
             // Tx ID may not be unique in inner txs; add index/round for React key safety
             const id = t.id ?? t.txid ?? `${t.group ?? 'grp'}-${t['confirmed-round'] ?? t.round ?? 0}-${index}`
 
-            const round = t['confirmed-round'] ?? t.confirmedRound ?? t.round ?? 0
+            const roundRaw = t['confirmed-round'] ?? t.confirmedRound ?? t.round
+            const round = Number.isFinite(Number(roundRaw)) ? Number(roundRaw) : undefined
 
             return {
               id,
@@ -397,11 +403,11 @@ const PortfolioDashboard: React.FC<Props> = ({ onOpenCreateModal }) => {
             )}
 
             {txns.map((t, index) => (
-              <tr key={`${t.id}-${t.round}-${index}`}>
-                <td>{t.type}</td>
+              <tr key={`${t.id}-${t.round ?? 'r'}-${index}`}>
+                <td className="capitalize">{t.type ?? 'Unknown'}</td>
                 <td>{formatTxnAmount(t)}</td>
                 <td>{t.assetId ?? 'ALGO'}</td>
-                <td>{t.round}</td>
+                <td>{t.round ?? '—'}</td>
                 <td className="font-mono text-[10px]">{ellipseAddress(t.id)}</td>
               </tr>
             ))}
