@@ -1,44 +1,83 @@
-# The Web3 Masterclasses Set Up!
+# 🌐 Multi-Token Portfolio Dashboard  
+### *Your All-in-One Web3 Interface on Algorand*
 
-Welcome to the Web3 Masterclasses Setup! This repository is designed to provide you with everything you need to start building on the Algorand blockchain.
+The Multi-Token Portfolio Dashboard is a unified Web3 application designed to simplify how users and developers interact with the Algorand blockchain.  
+It provides real-time token balances, ASA (Algorand Standard Asset) management, transaction exploration, and wallet connectivity — all in one clean interface.
 
-📘 **New here?** Check out our [Reference Guide](https://docs.google.com/document/d/19FHGLijTwKivy14KpNYaXVLxEI_Yo97ooaGj6CxZ1fA/edit?usp=sharing)
+This project was built using React, TypeScript, Vite, Pera Wallet, AlgoKit, and the Algorand SDK, with full support for TestNet and LocalNet environments.
 
-It includes prompts, setup instructions, and AI tips to help you follow along with the Web3 Masterclasses!
+---
 
-## 🌟 How To Get Started Instructions
+## 🚀 Features
 
-### **Fork the Repo:**
+### 🔹 1. Real-Time Portfolio View
+- Displays ALGO balance
+- Shows all ASA holdings
+- Fetches and renders ASA metadata (name, unit, decimals)
+- Automatically normalizes on-chain BigInt values
 
-To create your own copy of this repository:
+### 🔹 2. ASA Token Management
+- Create new Algorand Standard Assets (ASA)
+- Send ASA tokens to any opt-in address
+- Automatic validation and error handling
 
-a. **Go to the GitHub Repository:**
-   - Navigate to the main page which is the current one your on.
+### 🔹 3. Transaction Explorer
+- Shows the latest on-chain transactions from the Indexer
+- Supports ALGO and ASA transfers
+- Decodes metadata including:
+  - Type  
+  - Amount  
+  - Asset ID  
+  - Round  
+  - TxID (shortened)
 
-b. **Click the "Fork" Button:**
-   - In the top-right corner of the page, click the **Fork** button. This will create a copy of the repository under your GitHub account.
+### 🔹 4. Web3 Wallet Connectivity
+- Connects with Pera Wallet
+- Secure transaction signing
+- Full TestNet compatibility
 
-c. **Wait for the Forking Process to Complete:**
-   - GitHub will take a few moments to create the fork. Once complete, you’ll be redirected to your newly created fork.
+### 🔹 5. Developer-Friendly Workflow
+- Built using AlgoKit
+- Supports LocalNet + TestNet
+- Clean modular architecture
+- Strong error handling for decoding, BigInt, and metadata fetching
+
+---
+
+## 🧠 Why This Project?
+
+Managing Algorand assets usually requires multiple tools.  
+This dashboard solves that.
+
+| Problem | Solution |
+|--------|----------|
+| Users need multiple tools | Unified dashboard |
+| Hard to view ALGO + ASAs together | Real-time portfolio view |
+| Manual ASA creation | Built-in ASA creator |
+| Indexer data hard to parse | Clean, structured UI |
+
+The result is a fast, intuitive, developer-first token interface.
+
+---
+
+## 🛠️ Tech Stack
+
+- React + TypeScript + Vite  
+- Algorand SDK via AlgoKit utils  
+- Pera Wallet Connect (use-wallet-react)  
+- TailwindCSS + DaisyUI  
+- Notistack  
+- Algonode RPC + Indexer endpoints  
+
+---
+
+## 📸 Screenshot
 
 
+### Dashboard Overview  
+<img width="1148" height="864" alt="Screenshot from 2025-12-08 22-23-32" src="https://github.com/user-attachments/assets/57c44825-684f-4005-a45a-22fa3b485b17" />
+---
 
-https://github.com/user-attachments/assets/92e746e1-3143-4769-8a5a-1339e4bd7a14
-
-
-
-## 🚀 Start with Codespaces
-This is the fastest way to get up and running!
-
-1. **Create a Codespace:**
-
-   - Click the green "Code" button at the top right of your forked repo.
-   - Select "Create codespace on main".
-   - Once your Codespace is fully loaded, you are ready to go!
-
-2. **Start Coding:**
-   - Run the command ```algokit init```
-
-
-https://github.com/user-attachments/assets/ee3fda3e-f4fe-4190-867b-0a626f0eb099
-
+`bash
+git clone https://github.com/YOUR_USERNAME/YOUR_REPO_NAME.git
+cd YOUR_REPO_NAME
