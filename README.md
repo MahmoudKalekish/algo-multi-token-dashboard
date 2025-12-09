@@ -76,8 +76,6 @@ The result is a fast, intuitive, developer-first token interface.
 
 ### Dashboard Overview  
 <img width="1148" height="864" alt="Screenshot from 2025-12-08 22-23-32" src="https://github.com/user-attachments/assets/57c44825-684f-4005-a45a-22fa3b485b17" />
+
 ---
 
-`bash
-git clone https://github.com/YOUR_USERNAME/YOUR_REPO_NAME.git
-cd YOUR_REPO_NAME
